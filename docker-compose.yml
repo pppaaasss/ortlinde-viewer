@@ -1,0 +1,18 @@
+services:
+  viewer:
+    build:
+      context: .
+    image: ${IMAGE_NAME:-ortlinde-viewer}:latest
+    container_name: ortlinde-viewer
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "${PORT:-5173}"
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-5173}:${PORT:-5173}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${PORT:-5173}/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

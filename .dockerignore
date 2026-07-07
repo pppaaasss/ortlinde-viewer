@@ -1,0 +1,10 @@
+node_modules
+dist
+test-results
+.chrome-profile
+.build-lock
+*.log
+.git
+.gitignore
+Dockerfile
+docker-compose*.yml

@@ -1,0 +1,17 @@
+{
+  "name": "Ortlinde Viewer",
+  "short_name": "Viewer",
+  "description": "轻量 Ortlinde 图片查看器",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141412",
+  "theme_color": "#141412",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

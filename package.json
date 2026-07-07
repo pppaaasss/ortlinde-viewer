@@ -1,0 +1,22 @@
+{
+  "name": "ortlinde-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs --dev",
+    "build": "node scripts/build.mjs",
+    "start": "node server.mjs",
+    "test:routes": "node scripts/route-tests.mjs",
+    "test:dev-server": "node scripts/dev-server-tests.mjs",
+    "test:browser": "npm run build && node scripts/browser-smoke.mjs",
+    "test:browser:run": "node scripts/browser-smoke.mjs",
+    "test:static": "npm run build && node scripts/static-tests.mjs",
+    "test:static:run": "node scripts/static-tests.mjs",
+    "test": "npm run build && npm run test:routes && npm run test:static:run && npm run test:dev-server && npm run test:browser:run"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.1.1"
+  }
+}

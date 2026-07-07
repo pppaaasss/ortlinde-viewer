@@ -1,0 +1,11 @@
+# Copy this site block into your existing Caddyfile, or into a file imported
+# by your Caddyfile. Replace viewer.example.com with the real domain.
+
+viewer.example.com {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:5173 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}
