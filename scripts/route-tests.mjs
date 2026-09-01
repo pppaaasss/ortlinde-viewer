@@ -26,10 +26,16 @@ const randomWithWhitespace = route(`/api/gallery/random?category=${encodeURIComp
 assert.equal(randomWithWhitespace.upstreamUrl, "https://veil.ortlinde.com/v1/gallery/random?category=China");
 
 const tagsPage = route("/api/tags?limit=5000&offset=-9");
-assert.equal(tagsPage.upstreamUrl, "https://veil.ortlinde.com/v1/tags?limit=1000&offset=0");
+assert.equal(tagsPage.upstreamUrl, "https://veil.ortlinde.com/v1/tags?limit=5000&offset=0");
 
 const minimumTagsPage = route("/api/tags?limit=0&offset=12.9");
 assert.equal(minimumTagsPage.upstreamUrl, "https://veil.ortlinde.com/v1/tags?limit=1&offset=12");
+
+const galleriesPage = route("/api/galleries?limit=500&offset=24");
+assert.equal(galleriesPage.upstreamUrl, "https://veil.ortlinde.com/v1/galleries?limit=100&offset=24");
+
+const galleryPage = route("/api/gallery/99713?image_limit=500&image_offset=100");
+assert.equal(galleryPage.upstreamUrl, "https://veil.ortlinde.com/v1/gallery/99713?image_limit=100&image_offset=100");
 
 assert.equal(buildRoute("/api/tag/%E0%A4%A/preview"), null);
 assert.equal(buildRoute("/api/gallery/not-a-number"), null);
