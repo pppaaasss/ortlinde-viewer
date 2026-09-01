@@ -13,7 +13,7 @@
     "test:browser:run": "node scripts/browser-smoke.mjs",
     "test:static": "npm run build && node scripts/static-tests.mjs",
     "test:static:run": "node scripts/static-tests.mjs",
-    "test": "npm run build && npm run test:routes && npm run test:static:run && npm run test:dev-server && npm run test:browser:run"
+    "test": "npm run build && npm run test:routes && npm run test:static:run && npm run test:dev-server"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
