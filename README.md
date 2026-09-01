@@ -1,14 +1,15 @@
 # Ortlinde Viewer
 
-轻量 Ortlinde 图集查看器。前端使用 Vite + 原生 TypeScript/CSS，后端是一个小型 Node 代理和静态文件服务。
+移动端优先的 Ortlinde 图集查看器。前端使用 Vite + 原生 TypeScript/CSS，后端是一个小型 Node 代理和静态文件服务。
 
 ## 功能
 
-- 随机图集浏览，支持分类筛选。
-- 标签搜索、精选标签、最近使用标签。
-- 标签点击优先请求随机图集，找不到图集时退回 6 张预览样本。
-- 图片上一张/下一张、收藏、历史、图集信息面板、打开原图链接。
-- 桌面侧边栏布局，移动端底部工具栏和侧滑菜单。
+- 最新图集封面墙，支持分页加载。
+- 点击封面进入完整图集，纵向连续阅读，图片原生懒加载。
+- 超过 100 张的图集可继续分页加载后续图片。
+- 标签与分类点击后随机打开一个匹配的完整图集；不再把 6 张标签预览伪装成图集结果。
+- 标签目录每批最多加载 20,000 条，搜索结果只渲染前 80 条，避免手机卡顿。
+- 桌面固定侧栏，移动端两列封面墙和侧滑菜单。
 - PWA manifest 和 service worker，缓存静态资源，不缓存 API 和 HTML。
 
 ## 本地开发
@@ -185,10 +186,11 @@ npm run test:browser
 - `/api/categories`
 - `/api/featured-tags`
 - `/api/tags?limit=&offset=`
+- `/api/galleries?limit=&offset=`
 - `/api/gallery/random`
 - `/api/gallery/random?category=...`
 - `/api/gallery/random?tag=...`
-- `/api/gallery/:id`
+- `/api/gallery/:id?image_limit=&image_offset=`
 - `/api/image/:id/meta`
 - `/api/tag/:name/preview`
 
