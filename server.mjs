@@ -90,7 +90,11 @@ export function buildRoute(reqUrl) {
     upstreamPath = "/v1/featured-tags";
   } else if (pathname === "/api/tags") {
     upstreamPath = "/v1/tags";
-    query.set("limit", String(sanitizePositiveInt(url.searchParams.get("limit"), 100, 1000, 1)));
+    query.set("limit", String(sanitizePositiveInt(url.searchParams.get("limit"), 100, 20000, 1)));
+    query.set("offset", String(sanitizePositiveInt(url.searchParams.get("offset"), 0, 200000)));
+  } else if (pathname === "/api/galleries") {
+    upstreamPath = "/v1/galleries";
+    query.set("limit", String(sanitizePositiveInt(url.searchParams.get("limit"), 24, 100, 1)));
     query.set("offset", String(sanitizePositiveInt(url.searchParams.get("offset"), 0, 200000)));
   } else if (pathname === "/api/gallery/random") {
     upstreamPath = "/v1/gallery/random";
@@ -102,6 +106,8 @@ export function buildRoute(reqUrl) {
     }
   } else if (/^\/api\/gallery\/\d+$/.test(pathname)) {
     upstreamPath = pathname.replace("/api", "/v1");
+    query.set("image_limit", String(sanitizePositiveInt(url.searchParams.get("image_limit"), 100, 100, 1)));
+    query.set("image_offset", String(sanitizePositiveInt(url.searchParams.get("image_offset"), 0, 200000)));
     ttl = CACHE_TTL.gallery;
   } else if (/^\/api\/image\/\d+\/meta$/.test(pathname)) {
     upstreamPath = pathname.replace("/api", "/v1");
