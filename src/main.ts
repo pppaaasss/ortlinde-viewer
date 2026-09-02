@@ -2,7 +2,7 @@ import "./styles.css";
 
 const IMAGE_BASE = "https://veil.ortlinde.com/v1/image";
 const TAG_BATCH = 20_000;
-const GALLERY_BATCH = 24;
+const GALLERY_BATCH = 6;
 
 type GalleryImage = { id: number; sort_order?: number; width?: number | null; height?: number | null };
 type GallerySummary = { id: number; title: string; category?: string | null; image_count: number; uploaded_images?: number; cover?: { image_id?: number | null } | null; cover_image_id?: number | null };
@@ -15,7 +15,7 @@ class ApiError extends Error {
 }
 
 const state = {
-  galleries: [] as GallerySummary[], galleryTotal: 0, galleryOffset: 0, galleryWindowStart: 0,
+  galleries: [] as GallerySummary[],
   current: null as Gallery | null,
   tags: [] as TagItem[], tagTotal: 0, tagOffset: 0,
   categories: [] as CategoryItem[], featuredTags: [] as TagItem[],
@@ -37,7 +37,7 @@ app.innerHTML = `
     </section>
   </aside>
   <main class="main">
-    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">可用图集</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机图集</button></header>
+    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">发现图集</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机图集</button></header>
     <section class="catalog" id="catalog"><div class="gallery-grid" id="galleryGrid"></div><button class="secondary-button load-more" id="loadMore">加载更多图集</button></section>
     <section class="reader" id="reader" hidden>
       <div class="reader-head"><button class="icon-button" id="backToCatalog">←</button><div class="reader-title"><strong id="readerTitle"></strong><small id="readerMeta"></small></div><button class="icon-button" id="readerInfo">i</button></div>
@@ -97,26 +97,22 @@ function sanitizeGallery(value: unknown): Gallery | null {
 async function loadGalleries(reset = false) {
   if (state.loading) return; setBusy(true);
   try {
-    if (reset) {
-      const count = await requestJson<{ total?: number }>("/api/galleries?limit=1&offset=0");
-      const upstreamTotal = positive(count.total);
-      state.galleryWindowStart = Math.max(0, upstreamTotal - 10_000);
-      state.galleryOffset = state.galleryWindowStart;
-      state.galleryTotal = upstreamTotal - state.galleryWindowStart;
-      state.galleries = [];
+    if (reset) state.galleries = [];
+    const known = new Set(state.galleries.map(item => item.id));
+    const targetSize = state.galleries.length + GALLERY_BATCH;
+    for (let attempt = 0; attempt < GALLERY_BATCH * 2 && state.galleries.length < targetSize; attempt += 1) {
+      const gallery = sanitizeGallery(await requestJson("/api/gallery/random"));
+      if (!gallery?.images.length || known.has(gallery.id)) continue;
+      known.add(gallery.id);
+      state.galleries.push(gallery);
     }
-    const offset = state.galleryOffset;
-    const data = await requestJson<{ items?: unknown[] }>(`/api/galleries?limit=${GALLERY_BATCH}&offset=${offset}`);
-    const items = (data.items || []).map(sanitizeSummary).filter((item): item is GallerySummary => item !== null && (item.uploaded_images || 0) >= item.image_count && item.image_count > 0);
-    state.galleries.push(...items);
-    state.galleryOffset = offset + (data.items?.length || 0);
     renderGalleryGrid();
   }
   catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); }
 }
 function renderGalleryGrid() {
   els.galleryGrid.innerHTML = state.galleries.map(gallery => { const coverId = positive(gallery.cover?.image_id) || positive(gallery.cover_image_id); return `<button class="gallery-card" data-gallery-id="${gallery.id}"><span class="cover-wrap">${coverId ? `<img src="${imageUrl(coverId)}" alt="" loading="lazy" decoding="async">` : `<span class="cover-empty">暂无封面</span>`}</span><span class="card-copy"><strong>${escapeHtml(gallery.title)}</strong><small>${escapeHtml(gallery.category || "未分类")}</small><span class="card-stats"><b>${gallery.image_count || "?"}P</b><em>ID ${gallery.id}</em></span></span></button>`; }).join("");
-  els.pageMeta.textContent = `已显示 ${state.galleries.length.toLocaleString()} / ${state.galleryTotal.toLocaleString()} 个图集`; els.loadMore.hidden = state.galleryTotal > 0 && state.galleries.length >= state.galleryTotal;
+  els.pageMeta.textContent = `已随机发现 ${state.galleries.length.toLocaleString()} 个完整图集`; els.loadMore.hidden = false;
 }
 
 async function openGallery(id: number) {
