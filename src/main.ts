@@ -5,7 +5,7 @@ const TAG_BATCH = 20_000;
 const GALLERY_BATCH = 24;
 
 type GalleryImage = { id: number; sort_order?: number; width?: number | null; height?: number | null };
-type GallerySummary = { id: number; title: string; category?: string | null; image_count: number; cover?: { image_id?: number | null } | null; cover_image_id?: number | null };
+type GallerySummary = { id: number; title: string; category?: string | null; image_count: number; uploaded_images?: number; cover?: { image_id?: number | null } | null; cover_image_id?: number | null };
 type Gallery = GallerySummary & { tags: string[]; images: GalleryImage[]; images_pagination?: { total: number; offset: number; limit: number; has_next: boolean } };
 type TagItem = { id: number; name: string; gallery_count?: number };
 type CategoryItem = { name: string; gallery_count?: number };
@@ -15,7 +15,7 @@ class ApiError extends Error {
 }
 
 const state = {
-  galleries: [] as GallerySummary[], galleryTotal: 0, galleryOffset: 0,
+  galleries: [] as GallerySummary[], galleryTotal: 0, galleryOffset: 0, galleryWindowStart: 0,
   current: null as Gallery | null,
   tags: [] as TagItem[], tagTotal: 0, tagOffset: 0,
   categories: [] as CategoryItem[], featuredTags: [] as TagItem[],
@@ -37,7 +37,7 @@ app.innerHTML = `
     </section>
   </aside>
   <main class="main">
-    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">最新图集</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机图集</button></header>
+    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">可用图集</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机图集</button></header>
     <section class="catalog" id="catalog"><div class="gallery-grid" id="galleryGrid"></div><button class="secondary-button load-more" id="loadMore">加载更多图集</button></section>
     <section class="reader" id="reader" hidden>
       <div class="reader-head"><button class="icon-button" id="backToCatalog">←</button><div class="reader-title"><strong id="readerTitle"></strong><small id="readerMeta"></small></div><button class="icon-button" id="readerInfo">i</button></div>
@@ -76,7 +76,7 @@ function closeDrawer() { els.sidebar.classList.remove("open"); els.drawerScrim.c
 function sanitizeSummary(value: unknown): GallerySummary | null {
   if (!value || typeof value !== "object") return null; const item = value as Record<string, unknown>; const id = positive(item.id); if (!id) return null;
   const cover = item.cover && typeof item.cover === "object" ? item.cover as { image_id?: number | null } : null;
-  return { id, title: typeof item.title === "string" && item.title ? item.title : `Gallery ${id}`, category: typeof item.category === "string" ? item.category : null, image_count: positive(item.image_count), cover, cover_image_id: positive(item.cover_image_id) || null };
+  return { id, title: typeof item.title === "string" && item.title ? item.title : `Gallery ${id}`, category: typeof item.category === "string" ? item.category : null, image_count: positive(item.image_count), uploaded_images: positive(item.uploaded_images), cover, cover_image_id: positive(item.cover_image_id) || null };
 }
 function sanitizeGallery(value: unknown): Gallery | null {
   const summary = sanitizeSummary(value); if (!summary || !value || typeof value !== "object") return null; const item = value as Record<string, unknown>;
@@ -96,7 +96,22 @@ function sanitizeGallery(value: unknown): Gallery | null {
 
 async function loadGalleries(reset = false) {
   if (state.loading) return; setBusy(true);
-  try { const offset = reset ? 0 : state.galleryOffset; const data = await requestJson<{ items?: unknown[]; total?: number }>(`/api/galleries?limit=${GALLERY_BATCH}&offset=${offset}`); const items = (data.items || []).map(sanitizeSummary).filter((item): item is GallerySummary => item !== null); state.galleries = reset ? items : [...state.galleries, ...items]; state.galleryOffset = offset + items.length; state.galleryTotal = positive(data.total); renderGalleryGrid(); }
+  try {
+    if (reset) {
+      const count = await requestJson<{ total?: number }>("/api/galleries?limit=1&offset=0");
+      const upstreamTotal = positive(count.total);
+      state.galleryWindowStart = Math.max(0, upstreamTotal - 10_000);
+      state.galleryOffset = state.galleryWindowStart;
+      state.galleryTotal = upstreamTotal - state.galleryWindowStart;
+      state.galleries = [];
+    }
+    const offset = state.galleryOffset;
+    const data = await requestJson<{ items?: unknown[] }>(`/api/galleries?limit=${GALLERY_BATCH}&offset=${offset}`);
+    const items = (data.items || []).map(sanitizeSummary).filter((item): item is GallerySummary => item !== null && (item.uploaded_images || 0) >= item.image_count && item.image_count > 0);
+    state.galleries.push(...items);
+    state.galleryOffset = offset + (data.items?.length || 0);
+    renderGalleryGrid();
+  }
   catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); }
 }
 function renderGalleryGrid() {
