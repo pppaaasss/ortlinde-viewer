@@ -1,4 +1,4 @@
-const CACHE_NAME = "ortlinde-viewer-v4";
+const CACHE_NAME = "ortlinde-viewer-v5";
 const APP_SHELL = ["/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
