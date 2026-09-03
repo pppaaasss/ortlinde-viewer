@@ -2,9 +2,9 @@ import "./styles.css";
 
 const IMAGE_BASE = "https://veil.ortlinde.com/v1/image";
 const TAG_BATCH = 20_000;
-const GALLERY_BATCH = 6;
+const GALLERY_BATCH = 20;
 
-type GalleryImage = { id: number; sort_order?: number; width?: number | null; height?: number | null };
+type GalleryImage = { id: number; sort_order?: number; width?: number | null; height?: number | null; uploaded?: boolean };
 type GallerySummary = { id: number; title: string; category?: string | null; image_count: number; uploaded_images?: number; cover?: { image_id?: number | null } | null; cover_image_id?: number | null };
 type Gallery = GallerySummary & { tags: string[]; images: GalleryImage[]; images_pagination?: { total: number; offset: number; limit: number; has_next: boolean } };
 type TagItem = { id: number; name: string; gallery_count?: number };
@@ -15,7 +15,7 @@ class ApiError extends Error {
 }
 
 const state = {
-  galleries: [] as GallerySummary[],
+  galleries: [] as GallerySummary[], galleryTotal: 0, galleryOffset: 0,
   current: null as Gallery | null,
   tags: [] as TagItem[], tagTotal: 0, tagOffset: 0,
   categories: [] as CategoryItem[], featuredTags: [] as TagItem[],
@@ -37,7 +37,7 @@ app.innerHTML = `
     </section>
   </aside>
   <main class="main">
-    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">发现图集</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机图集</button></header>
+    <header class="topbar" id="topbar"><button class="icon-button" id="openSidebar">☰</button><div class="heading"><strong id="pageTitle">最新图集目录</strong><small id="pageMeta">正在连接 Veil</small></div><button class="accent-button" id="randomGallery">随机可看</button></header>
     <section class="catalog" id="catalog"><div class="gallery-grid" id="galleryGrid"></div><button class="secondary-button load-more" id="loadMore">加载更多图集</button></section>
     <section class="reader" id="reader" hidden>
       <div class="reader-head"><button class="icon-button" id="backToCatalog">←</button><div class="reader-title"><strong id="readerTitle"></strong><small id="readerMeta"></small></div><button class="icon-button" id="readerInfo">i</button></div>
@@ -87,7 +87,8 @@ function sanitizeGallery(value: unknown): Gallery | null {
       const record = raw as Record<string, unknown>;
       const id = positive(record.id);
       if (!id) continue;
-      images.push({ id, sort_order: positive(record.sort_order), width: positive(record.width) || null, height: positive(record.height) || null });
+      if (record.uploaded === false) continue;
+      images.push({ id, sort_order: positive(record.sort_order), width: positive(record.width) || null, height: positive(record.height) || null, uploaded: record.uploaded === true });
     }
   }
   const pagination = item.images_pagination && typeof item.images_pagination === "object" ? item.images_pagination as Gallery["images_pagination"] : undefined;
@@ -97,27 +98,36 @@ function sanitizeGallery(value: unknown): Gallery | null {
 async function loadGalleries(reset = false) {
   if (state.loading) return; setBusy(true);
   try {
-    if (reset) state.galleries = [];
+    if (reset) { state.galleries = []; state.galleryOffset = 0; state.galleryTotal = 0; }
+    const data = await requestJson<{ items?: unknown[]; total?: number; has_next?: boolean }>(`/api/galleries?limit=${GALLERY_BATCH}&offset=${state.galleryOffset}`);
+    const rawItems = Array.isArray(data.items) ? data.items : [];
     const known = new Set(state.galleries.map(item => item.id));
-    const targetSize = state.galleries.length + GALLERY_BATCH;
-    for (let attempt = 0; attempt < GALLERY_BATCH * 2 && state.galleries.length < targetSize; attempt += 1) {
-      const gallery = sanitizeGallery(await requestJson("/api/gallery/random"));
-      if (!gallery?.images.length || known.has(gallery.id)) continue;
-      known.add(gallery.id);
-      state.galleries.push(gallery);
+    for (const raw of rawItems) {
+      const gallery = sanitizeSummary(raw);
+      if (gallery && !known.has(gallery.id)) { known.add(gallery.id); state.galleries.push(gallery); }
     }
+    state.galleryOffset += rawItems.length;
+    state.galleryTotal = positive(data.total) || state.galleries.length;
     renderGalleryGrid();
   }
   catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); }
 }
 function renderGalleryGrid() {
-  els.galleryGrid.innerHTML = state.galleries.map(gallery => { const coverId = positive(gallery.cover?.image_id) || positive(gallery.cover_image_id); return `<button class="gallery-card" data-gallery-id="${gallery.id}"><span class="cover-wrap">${coverId ? `<img src="${imageUrl(coverId)}" alt="" loading="lazy" decoding="async">` : `<span class="cover-empty">暂无封面</span>`}</span><span class="card-copy"><strong>${escapeHtml(gallery.title)}</strong><small>${escapeHtml(gallery.category || "未分类")}</small><span class="card-stats"><b>${gallery.image_count || "?"}P</b><em>ID ${gallery.id}</em></span></span></button>`; }).join("");
-  els.pageMeta.textContent = `已随机发现 ${state.galleries.length.toLocaleString()} 个完整图集`; els.loadMore.hidden = false;
+  els.galleryGrid.innerHTML = state.galleries.map(gallery => {
+    const uploaded = positive(gallery.uploaded_images);
+    const available = uploaded > 0;
+    const coverId = available ? positive(gallery.cover?.image_id) || positive(gallery.cover_image_id) : 0;
+    const status = available ? (uploaded >= gallery.image_count ? "完整可看" : `已上传 ${uploaded}/${gallery.image_count}`) : "等待上传";
+    return `<button class="gallery-card${available ? "" : " unavailable"}" data-gallery-id="${gallery.id}" data-available="${available ? "1" : "0"}" aria-disabled="${available ? "false" : "true"}"><span class="cover-wrap">${coverId ? `<img src="${imageUrl(coverId)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : `<span class="cover-empty">${status}</span>`}</span><span class="card-copy"><strong>${escapeHtml(gallery.title)}</strong><small>${escapeHtml(gallery.category || "未分类")} · ${status}</small><span class="card-stats"><b>${gallery.image_count || "?"}P</b><em>ID ${gallery.id}</em></span></span></button>`;
+  }).join("");
+  const availableCount = state.galleries.filter(item => positive(item.uploaded_images) > 0).length;
+  els.pageMeta.textContent = `目录 ${state.galleries.length.toLocaleString()} / ${state.galleryTotal.toLocaleString()} · 当前可看 ${availableCount}`;
+  els.loadMore.hidden = state.galleryTotal > 0 && state.galleryOffset >= state.galleryTotal;
 }
 
 async function openGallery(id: number) {
   if (!id || state.loading) return; setBusy(true);
-  try { const gallery = sanitizeGallery(await requestJson(`/api/gallery/${id}?image_limit=100&image_offset=0`)); if (!gallery?.images.length) throw new Error("图集没有可用图片"); state.current = gallery; renderReader(true); closeDrawer(); history.replaceState({ galleryId: id }, "", `#gallery-${id}`); }
+  try { const gallery = sanitizeGallery(await requestJson(`/api/gallery/${id}?image_limit=100&image_offset=0`)); if (!gallery?.images.length) throw new Error("这套图集的图片尚未上传"); state.current = gallery; renderReader(true); closeDrawer(); history.pushState({ galleryId: id }, "", `#gallery-${id}`); }
   catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); }
 }
 async function openRandom(params = new URLSearchParams()) {
@@ -133,30 +143,31 @@ function renderReader(scrollTop = false) {
 function updateReaderMore() { els.readerMore.hidden = !state.current?.images_pagination?.has_next; els.readerLoading.hidden = !state.loadingImages; }
 async function loadMoreImages() {
   const gallery = state.current; const pagination = gallery?.images_pagination; if (!gallery || !pagination?.has_next || state.loadingImages) return; state.loadingImages = true; updateReaderMore();
-  try { const next = sanitizeGallery(await requestJson(`/api/gallery/${gallery.id}?image_limit=100&image_offset=${gallery.images.length}`)); if (!next) throw new Error("后续图片数据无效"); const known = new Set(gallery.images.map(image => image.id)); gallery.images.push(...next.images.filter(image => !known.has(image.id))); gallery.images_pagination = next.images_pagination; renderReader(false); }
+  try { const nextOffset = positive(pagination.offset) + positive(pagination.limit); const next = sanitizeGallery(await requestJson(`/api/gallery/${gallery.id}?image_limit=100&image_offset=${nextOffset}`)); if (!next) throw new Error("后续图片数据无效"); const known = new Set(gallery.images.map(image => image.id)); gallery.images.push(...next.images.filter(image => !known.has(image.id))); gallery.images_pagination = next.images_pagination; renderReader(false); }
   catch (error) { toast(explainError(error), "warn"); } finally { state.loadingImages = false; updateReaderMore(); }
 }
 function showCatalog() { state.current = null; els.reader.hidden = true; els.topbar.hidden = false; els.catalog.hidden = false; els.readerInfoPanel.hidden = true; history.replaceState({}, "", location.pathname); window.scrollTo(0, 0); }
 
 function openSingleViewer(index: number) { if (!state.current?.images[index]) return; state.viewerIndex = index; els.singleViewer.hidden = false; document.body.classList.add("viewer-open"); renderSingleViewer(); }
-function renderSingleViewer() { const gallery = state.current; const image = gallery?.images[state.viewerIndex]; if (!gallery || !image) return; const src = imageUrl(image.id); els.viewerImage.src = src; els.viewerImage.alt = `${gallery.title} 第 ${state.viewerIndex + 1} 张`; els.viewerCounter.textContent = `${state.viewerIndex + 1}/${gallery.image_count || gallery.images.length}`; els.viewerOriginal.href = src; els.viewerPrev.disabled = state.viewerIndex === 0; els.viewerNext.disabled = state.viewerIndex >= gallery.images.length - 1; }
-function moveSingleViewer(delta: number) { const gallery = state.current; if (!gallery) return; const next = Math.max(0, Math.min(gallery.images.length - 1, state.viewerIndex + delta)); if (next === state.viewerIndex) return; state.viewerIndex = next; renderSingleViewer(); }
+function renderSingleViewer() { const gallery = state.current; const image = gallery?.images[state.viewerIndex]; if (!gallery || !image) return; const src = imageUrl(image.id); els.viewerImage.src = src; els.viewerImage.alt = `${gallery.title} 第 ${state.viewerIndex + 1} 张`; els.viewerCounter.textContent = `${state.viewerIndex + 1}/${gallery.image_count || gallery.images.length}`; els.viewerOriginal.href = src; els.viewerPrev.disabled = state.viewerIndex === 0; els.viewerNext.disabled = state.viewerIndex >= gallery.images.length - 1 && !gallery.images_pagination?.has_next; for (const nearby of [gallery.images[state.viewerIndex - 1], gallery.images[state.viewerIndex + 1]]) { if (nearby) { const preload = new Image(); preload.src = imageUrl(nearby.id); } } }
+async function moveSingleViewer(delta: number) { const gallery = state.current; if (!gallery) return; if (delta > 0 && state.viewerIndex >= gallery.images.length - 1 && gallery.images_pagination?.has_next) await loadMoreImages(); const refreshed = state.current; if (!refreshed) return; const next = Math.max(0, Math.min(refreshed.images.length - 1, state.viewerIndex + delta)); if (next === state.viewerIndex) return; state.viewerIndex = next; renderSingleViewer(); }
 function closeSingleViewer() { els.singleViewer.hidden = true; els.viewerImage.removeAttribute("src"); document.body.classList.remove("viewer-open"); }
 
 function renderCategories() { els.categoryList.innerHTML = state.categories.map(item => `<button class="side-row" data-category="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span><small>${item.gallery_count?.toLocaleString() || ""} 图集</small></button>`).join(""); }
 function renderFeaturedTags() { els.featuredTags.innerHTML = state.featuredTags.map(tag => `<button data-tag="${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</button>`).join(""); }
 function renderTags() { const query = els.tagSearch.value.trim().toLocaleLowerCase(); const matches = state.tags.filter(tag => !query || tag.name.toLocaleLowerCase().includes(query)).slice(0, 80); els.tagList.innerHTML = matches.map(tag => `<button class="side-row" data-tag="${escapeHtml(tag.name)}"><span>${escapeHtml(tag.name)}</span><small>${tag.gallery_count?.toLocaleString() || ""} 图集</small></button>`).join(""); els.tagProgress.textContent = state.tagTotal ? `已加载 ${state.tags.length.toLocaleString()} / ${state.tagTotal.toLocaleString()} 个标签${matches.length === 80 ? " · 仅显示前 80 条匹配" : ""}` : "尚未加载标签目录"; els.loadTags.hidden = state.tagTotal > 0 && state.tagOffset >= state.tagTotal; }
-async function loadTags() { if (state.loading) return; setBusy(true); try { const data = await requestJson<{ items?: TagItem[]; total?: number }>(`/api/tags?limit=${TAG_BATCH}&offset=${state.tagOffset}`); const seen = new Set(state.tags.map(tag => tag.id)); const items = (data.items || []).filter(tag => positive(tag.id) && typeof tag.name === "string" && !seen.has(tag.id)); state.tags.push(...items); state.tagOffset += items.length; state.tagTotal = positive(data.total) || state.tags.length; renderTags(); } catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); } }
+async function loadTags() { if (state.loading) return; setBusy(true); try { const data = await requestJson<{ items?: TagItem[]; total?: number }>(`/api/tags?limit=${TAG_BATCH}&offset=${state.tagOffset}`); const rawItems = Array.isArray(data.items) ? data.items : []; const seen = new Set(state.tags.map(tag => tag.id)); const items = rawItems.filter(tag => positive(tag.id) && typeof tag.name === "string" && !seen.has(tag.id)); state.tags.push(...items); state.tagOffset += rawItems.length; state.tagTotal = positive(data.total) || state.tags.length; renderTags(); } catch (error) { toast(explainError(error), "warn"); } finally { setBusy(false); } }
 async function loadNavigation() { const [categories, featured] = await Promise.allSettled([requestJson<{ items?: CategoryItem[] }>("/api/categories"), requestJson<{ items?: TagItem[] }>("/api/featured-tags")]); if (categories.status === "fulfilled") state.categories = categories.value.items || []; if (featured.status === "fulfilled") state.featuredTags = featured.value.items || []; renderCategories(); renderFeaturedTags(); }
 function runTag(tag: string) { toast(`正在随机抽取“${tag}”的完整图集`); openRandom(new URLSearchParams({ tag })); }
 
 els.openSidebar.addEventListener("click", openDrawer); els.closeSidebar.addEventListener("click", closeDrawer); els.drawerScrim.addEventListener("click", closeDrawer); els.loadMore.addEventListener("click", () => loadGalleries()); els.loadTags.addEventListener("click", loadTags); els.tagSearch.addEventListener("input", renderTags); els.randomGallery.addEventListener("click", () => openRandom()); els.backToCatalog.addEventListener("click", showCatalog); els.readerMore.addEventListener("click", loadMoreImages); els.readerInfo.addEventListener("click", () => { els.readerInfoPanel.hidden = !els.readerInfoPanel.hidden; });
 els.imageStream.addEventListener("click", event => { const target = (event.target as HTMLElement).closest<HTMLElement>("[data-image-index]"); if (target) openSingleViewer(Number(target.dataset.imageIndex)); });
+app.addEventListener("error", event => { const image = event.target; if (!(image instanceof HTMLImageElement)) return; if (image === els.viewerImage) { toast("这张图片暂时加载失败", "warn"); return; } const cover = image.closest<HTMLElement>(".cover-wrap"); if (cover) { cover.innerHTML = '<span class="cover-empty">封面暂不可用</span>'; return; } image.closest<HTMLElement>(".reader-image")?.classList.add("image-failed"); }, true);
 els.closeViewer.addEventListener("click", closeSingleViewer); els.viewerPrev.addEventListener("click", () => moveSingleViewer(-1)); els.viewerNext.addEventListener("click", () => moveSingleViewer(1));
 let touchStartX = 0;
 els.singleViewer.addEventListener("touchstart", event => { touchStartX = event.changedTouches[0]?.clientX || 0; }, { passive: true });
 els.singleViewer.addEventListener("touchend", event => { const distance = (event.changedTouches[0]?.clientX || 0) - touchStartX; if (Math.abs(distance) > 55) moveSingleViewer(distance < 0 ? 1 : -1); }, { passive: true });
-els.galleryGrid.addEventListener("click", event => { const button = (event.target as HTMLElement).closest<HTMLElement>("[data-gallery-id]"); if (button) openGallery(positive(button.dataset.galleryId)); });
+els.galleryGrid.addEventListener("click", event => { const button = (event.target as HTMLElement).closest<HTMLElement>("[data-gallery-id]"); if (!button) return; if (button.dataset.available !== "1") { toast("这套图集只有目录，图片还在等待上游上传", "warn"); return; } openGallery(positive(button.dataset.galleryId)); });
 for (const container of [els.categoryList, els.featuredTags, els.tagList, els.readerInfoPanel]) container.addEventListener("click", event => { const target = (event.target as HTMLElement).closest<HTMLElement>("[data-tag],[data-category]"); if (target?.dataset.tag) runTag(target.dataset.tag); if (target?.dataset.category) openRandom(new URLSearchParams({ category: target.dataset.category })); });
 window.addEventListener("popstate", () => { if (state.current) showCatalog(); });
 Promise.all([loadGalleries(true), loadNavigation()]).catch(error => toast(explainError(error), "warn"));
